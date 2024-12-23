@@ -17,5 +17,4 @@ public class RepeaterBotApplication {
     public ApplicationRunner commandLineRunner(TelegramBot bot, BotController botController) {
         return new BotRunner(bot, botController);
     }
-
 }

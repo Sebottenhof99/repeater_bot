@@ -13,8 +13,8 @@ public class RepeaterConfig {
 
     @Bean(destroyMethod = "shutdown")
     public TelegramBot telegramBot(Environment env) {
-        System.out.println("creat telegram bot");
-        return new TelegramBot("7724829961:AAHgq3zljIQgdie3_Ao-_OYghFBBuTzhBlU");
+        String token = env.getRequiredProperty("repeater.bot.token");
+        return new TelegramBot(token);
     }
 
     @Bean
@@ -22,9 +22,8 @@ public class RepeaterConfig {
         return new BotController(telegramBot, executorService);
     }
 
-
     @Bean(destroyMethod = "shutdown")
     public ExecutorService executorService() {
-        return Executors.newFixedThreadPool(6);
+        return Executors.newFixedThreadPool(8);
     }
 }

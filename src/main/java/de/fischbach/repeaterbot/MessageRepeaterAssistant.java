@@ -1,89 +1,48 @@
 package de.fischbach.repeaterbot;
 
 import com.pengrad.telegrambot.TelegramBot;
+import com.pengrad.telegrambot.model.Message;
 import com.pengrad.telegrambot.request.SendMessage;
-import com.pengrad.telegrambot.response.SendResponse;
+
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class MessageRepeaterAssistant {
 
     private final TelegramBot bot;
+    private final ExecutorService executorService;
     private List<Long> groupIds = new ArrayList<>();
     private boolean isFinished = false;
-    private String message;
+    private final BlockingQueue<Message> forwardedMessage = new LinkedBlockingQueue<>();
 
-    public MessageRepeaterAssistant(TelegramBot bot) {
+    public MessageRepeaterAssistant(TelegramBot bot, ExecutorService executorService) {
         this.bot = bot;
+        this.executorService = executorService;
     }
 
-    public void assist(long chatId, String input) {
-        if (input.startsWith("For groups:")) {
-            processGroupIds(chatId, input);
+    public void assist(long chatId, Message message) {
+        if (message.text() != null && message.text().startsWith("For groups:")) {
+            processGroupIds(chatId, message.text());
             return;
         }
 
-        if (input.startsWith("Message:")) {
-            StringBuilder sb = new StringBuilder();
-            message = input.substring("Message:".length());
-            sb.append(message);
-            sb.append("will be provided to groups with ids:");
-            groupIds.stream().map(String::valueOf).forEach(s -> sb.append(s).append("\n"));
-            sb.append("\n");
-            sb.append("All right? (yes/no)");
-            bot.execute(new SendMessage(chatId, sb.toString()));
+        if (message.forwardOrigin() != null) {
+            forwardedMessage.offer(message);
             return;
         }
 
-        if (input.equalsIgnoreCase("yes")) {
-
-            Thread thread = new Thread(() -> {
-                List<Long> unsuccessful = new ArrayList<>();
-                Iterator<Long> iterator = groupIds.iterator();
-                try  {
-                    while (iterator.hasNext()) {
-                        ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-                        executorService.schedule(() -> {
-                            if (iterator.hasNext()) {
-                                Long groupId = iterator.next();
-                                SendResponse response = bot.execute(new SendMessage(groupId, message));
-                                if (!response.isOk()) {
-                                    unsuccessful.add(groupId);
-                                }
-                            }
-                        }, 2, TimeUnit.SECONDS).get();
-                    }
-
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (ExecutionException e) {
-                    throw new RuntimeException(e);
-                }
-
-                if (!unsuccessful.isEmpty()) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("Groups with following ids could not be notified:");
-                    unsuccessful.stream().map(String::valueOf).forEach(s -> sb.append(s).append("\n"));
-                    bot.execute(new SendMessage(chatId, sb.toString()));
-                }else {
-                    bot.execute(new SendMessage(chatId, "Message is published in all groups"));
-                }
-
-            });
-            thread.start();
+        if ("send".equalsIgnoreCase(message.text())) {
+            executorService.submit(new RepeatMessageTask(groupIds, bot, chatId, forwardedMessage));
             isFinished = true;
             return;
-
         }
 
-        if ("no".equalsIgnoreCase(input)) {
+        if ("stop".equalsIgnoreCase(message.text())) {
             bot.execute(new SendMessage(chatId, "Current process will be aborted"));
             isFinished = true;
             return;
@@ -94,10 +53,10 @@ public class MessageRepeaterAssistant {
 
     private void processGroupIds(long chatId, String input) {
         String groupsString = input.substring("For groups:".length());
-        String[] groupIds = groupsString.split(",");
+        String[] groupIdStrings = groupsString.split(",");
         try {
-            this.groupIds = parseToLong(groupIds);
-            bot.execute(new SendMessage(chatId, "Please, provide message, that will be repeated as follow -  Message:<Test>"));
+            this.groupIds = parseToLong(groupIdStrings);
+            bot.execute(new SendMessage(chatId, "Please, forward message, that will be repeated as follow and then write 'send' or cancel"));
         } catch (NumberFormatException e) {
             bot.execute(new SendMessage(chatId, "All Ids must be a number"));
         }
@@ -110,6 +69,4 @@ public class MessageRepeaterAssistant {
     public boolean isFinished() {
         return isFinished;
     }
-
-
 }
